@@ -61,12 +61,13 @@
 
     <script type="text/babel">
         const { useState, useEffect } = React;
-        const apiKey = ""; // System will inject the key
+        // Integrated API Key
+        const apiKey = "AIzaSyD3wllJvRc5A1QivrNnwKJHgS55_6agtcE"; 
 
         // --- Gemini Helper ---
         async function callGemini(prompt) {
             // Priority: LocalStorage Key > System Key
-            const localKey = localStorage.getItem(AIzaSyD3wllJvRc5A1QivrNnwKJHgS55_6agtcE');
+            const localKey = localStorage.getItem('user_gemini_key');
             const keyToUse = localKey || apiKey;
 
             if (!keyToUse) {
@@ -159,7 +160,7 @@
                                 onChange={(e) => setLocalKey(e.target.value)}
                             />
                             <p className="text-xs text-gray-500 mt-2">
-                                <i className="fas fa-info-circle"></i> Leave blank to use the system default key (if available).
+                                <i className="fas fa-info-circle"></i> Leave blank to use the integrated system key.
                             </p>
                         </div>
 
