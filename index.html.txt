@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Phonetics Lab</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Markdown Parser (Marked) for AI responses -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&family=Noto+Serif:ital,wght@0,400;0,700;1,400&display=swap');
+        
+        body {
+            font-family: 'Noto Sans', sans-serif;
+            background-color: #f3f4f6;
+        }
+        
+        .ipa-text {
+            font-family: 'Noto Serif', serif; 
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border-left-color: #4f46e5; /* Indigo-600 */
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Markdown Styles */
+        .markdown-body p { margin-bottom: 0.75em; }
+        .markdown-body ul { list-style-type: disc; margin-left: 1.5em; margin-bottom: 0.75em; }
+        .markdown-body strong { font-weight: 600; color: #312e81; }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 700; margin-top: 1em; margin-bottom: 0.5em; color: #1e1b4b; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const apiKey = ""; // System will inject the key
+
+        // --- Gemini Helper ---
+        async function callGemini(prompt) {
+            try {
+                // Exponential backoff logic
+                const delays = [1000, 2000, 4000, 8000];
+                let attempt = 0;
+                
+                while (attempt <= delays.length) {
+                    try {
+                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: prompt }] }]
+                            })
+                        });
+
+                        if (!response.ok) {
+                             if (response.status === 429) {
+                                throw new Error("Too Many Requests");
+                             }
+                             throw new Error(`API Error: ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response generated.";
+                    } catch (err) {
+                        if (attempt === delays.length) throw err;
+                        await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+                        attempt++;
+                    }
+                }
+            } catch (e) {
+                console.error("Gemini API Error:", e);
+                return "Error: Could not connect to the AI Phonologist. Please try again later.";
+            }
+        }
+
+        // --- Components ---
+
+        const MarkdownRenderer = ({ content }) => {
+            const rawMarkup = marked.parse(content);
+            return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: rawMarkup }} />;
+        };
+
+        const AIResponseBox = ({ title, content, isLoading, icon }) => {
+            if (!isLoading && !content) return null;
+
+            return (
+                <div className="mt-6 bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 rounded-xl p-6 shadow-sm animate-fade-in">
+                    <div className="flex items-center gap-3 mb-4 text-indigo-800 font-bold text-lg border-b border-indigo-100 pb-2">
+                        {isLoading ? <div className="spinner border-indigo-600"></div> : <i className={`fas ${icon} text-xl`}></i>}
+                        <span>{title}</span>
+                    </div>
+                    {isLoading ? (
+                        <div className="space-y-3 animate-pulse">
+                            <div className="h-4 bg-indigo-100 rounded w-3/4"></div>
+                            <div className="h-4 bg-indigo-100 rounded w-1/2"></div>
+                            <div className="h-4 bg-indigo-100 rounded w-5/6"></div>
+                        </div>
+                    ) : (
+                        <div className="text-gray-800 text-base leading-relaxed">
+                            <MarkdownRenderer content={content} />
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const PhoneticsLab = () => {
+            const [text, setText] = useState("");
+            const [result, setResult] = useState("");
+            const [loading, setLoading] = useState(false);
+
+            const handleTranscribe = async () => {
+                if (!text.trim()) return;
+                setLoading(true);
+                setResult("");
+
+                const prompt = `Act as an expert Phonologist specializing in Peter Roach's methodology.
+                Input Text: "${text}"
+                
+                Task:
+                1. Provide a **Broad Phonemic Transcription** in RP (Received Pronunciation) enclosed in /slashes/.
+                2. Provide a **Narrow Phonetic Transcription** showing likely allophones (e.g., aspiration [ʰ], glottal stops [ʔ], dentalisation [n̪]) enclosed in [square brackets].
+                3. **Connected Speech Analysis**: Identify and explain at least 3 potential features (Assimilation, Elision, Linking /r/, Intrusive /r/, Weak forms) that would occur in a natural, casual delivery of this text.
+                
+                Format the output clearly using Markdown with bold headings.`;
+
+                const data = await callGemini(prompt);
+                setResult(data);
+                setLoading(false);
+            };
+
+            const handleClear = () => {
+                setText("");
+                setResult("");
+            };
+
+            return (
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 md:p-8 w-full">
+                    
+                    {/* Input Section */}
+                    <div className="mb-6 relative">
+                        <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">
+                            Input English Text
+                        </label>
+                        <textarea 
+                            className="w-full p-4 border border-gray-200 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 focus:outline-none transition-all text-lg resize-y min-h-[120px]"
+                            placeholder="Type English sentences here to analyze..."
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                        ></textarea>
+                        {text && (
+                            <button 
+                                onClick={handleClear}
+                                className="absolute top-10 right-4 text-gray-400 hover:text-gray-600"
+                                title="Clear text"
+                            >
+                                <i className="fas fa-times-circle"></i>
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={handleTranscribe}
+                            disabled={loading || !text.trim()}
+                            className="flex-1 bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:bg-gray-300 disabled:cursor-not-allowed shadow-lg shadow-indigo-200"
+                        >
+                            {loading ? (
+                                <span>Processing...</span>
+                            ) : (
+                                <span><i className="fas fa-wand-magic-sparkles mr-2"></i> Transcribe & Analyze</span>
+                            )}
+                        </button>
+                    </div>
+
+                    {/* Output Section */}
+                    <AIResponseBox 
+                        title="Phonological Analysis" 
+                        content={result} 
+                        isLoading={loading} 
+                        icon="fa-microscope" 
+                    />
+                    
+                    {!result && !loading && (
+                        <div className="mt-8 text-center text-gray-400 text-sm">
+                            <i className="fas fa-info-circle mr-1"></i> 
+                            Enter text above to generate IPA transcriptions and connected speech analysis.
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            return (
+                <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 p-4 md:p-8 flex flex-col items-center">
+                    
+                    {/* Header */}
+                    <header className="mb-8 text-center max-w-2xl">
+                        <div className="inline-block p-3 rounded-full bg-indigo-100 text-indigo-600 mb-4 text-2xl">
+                            <i className="fas fa-headphones-simple"></i>
+                        </div>
+                        <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 tracking-tight mb-2">
+                            Phonetics Lab
+                        </h1>
+                        <p className="text-lg text-gray-600">
+                            AI-powered transcription & connected speech analyzer based on <span className="font-semibold text-indigo-600">Peter Roach's</span> methodology.
+                        </p>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="w-full max-w-3xl">
+                        <PhoneticsLab />
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="mt-12 text-gray-400 text-sm text-center">
+                        <p>Experimental Tool • Powered by Gemini AI</p>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
